@@ -150,7 +150,7 @@ def main():
     lr=args.learning_rate
     for epoch in range(args.epochs):
         scheduler.step()
-        current_lr = scheduler.get_lr()[0]
+        current_lr = scheduler.get_last_lr()[0]
         logging.info('Epoch: %d lr: %e', epoch, current_lr)
         if epoch < 5 and args.batch_size > 256:
             for param_group in optimizer.param_groups:

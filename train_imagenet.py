@@ -146,7 +146,7 @@ def main():
     for epoch in range(args.epochs):
         if args.lr_scheduler == 'cosine':
             scheduler.step()
-            current_lr = scheduler.get_lr()[0]
+            current_lr = scheduler.get_last_lr()[0]
         elif args.lr_scheduler == 'linear':
             current_lr = adjust_lr(optimizer, epoch)
         else:
