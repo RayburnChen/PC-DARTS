@@ -2,6 +2,7 @@ import torch
 import numpy as np
 import torch.nn as nn
 from torch.autograd import Variable
+import torch.nn.functional as F
 
 
 def _concat(xs):
@@ -91,3 +92,50 @@ class Architect(object):
             p.data.add_(R, v)
 
         return [(x - y).div_(2 * R) for x, y in zip(grads_p, grads_n)]
+
+
+class ArchExtractor(object):
+
+    def __init__(self, model, args):
+        self.model = model
+        self.extractor = Extractor().cuda()
+        self.optimizer = torch.optim.Adam(self.extractor.parameters(), lr=0.001)
+
+    def step(self, print_loss):
+        self.optimizer.zero_grad()
+        # alphas_normal = self.model.arch_parameters()[0].unsqueeze(0)
+        alphas_normal = self.model.norm_gene().unsqueeze(0)
+        alphas_argmax = self.model.geno_matrix()
+        logits = self.extractor(alphas_normal)
+        log_prob = torch.nn.functional.log_softmax(logits, dim=1)
+        loss = -torch.mean(log_prob * alphas_argmax)
+        if print_loss:
+            print(loss.item())
+            print("====prediction====")
+            print(logits)
+            print("====label====")
+            print(alphas_argmax)
+        loss.backward()
+        self.optimizer.step()
+
+
+class Extractor(nn.Module):
+
+    def __init__(self):
+        super(Extractor, self).__init__()
+        self.flatten = nn.Flatten()
+        self.layer1 = nn.Linear(112, 64, bias=False)
+        self.act1 = nn.ReLU(inplace=True)
+        self.layer2 = nn.Linear(64, 112, bias=False)
+        self.act2 = nn.Sigmoid()
+
+    def forward(self, x):
+        # x is 14x8 matrix
+        out = self.flatten(x)
+        out = self.layer1(out)
+        out = self.act1(out)
+        out = self.layer2(out)
+        out = self.act2(out)
+        return out
+
+

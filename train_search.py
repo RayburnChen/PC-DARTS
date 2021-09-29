@@ -16,17 +16,17 @@ import torch.backends.cudnn as cudnn
 
 from torch.autograd import Variable
 from model_search import Network
-from architect import Architect
+from architect import Architect, Extractor, ArchExtractor
 
 parser = argparse.ArgumentParser("cifar")
 parser.add_argument('--data', type=str, default='../data', help='location of the data corpus')
 parser.add_argument('--set', type=str, default='cifar10', help='location of the data corpus')
-parser.add_argument('--batch_size', type=int, default=32, help='batch size')
+parser.add_argument('--batch_size', type=int, default=96, help='batch size')
 parser.add_argument('--learning_rate', type=float, default=0.1, help='init learning rate')
 parser.add_argument('--learning_rate_min', type=float, default=0.001, help='min learning rate')
 parser.add_argument('--momentum', type=float, default=0.9, help='momentum')
 parser.add_argument('--weight_decay', type=float, default=3e-4, help='weight decay')
-parser.add_argument('--report_freq', type=float, default=50, help='report frequency')
+parser.add_argument('--report_freq', type=float, default=100, help='report frequency')
 parser.add_argument('--gpu', type=int, default=0, help='gpu device id')
 parser.add_argument('--epochs', type=int, default=50, help='num of training epochs')
 parser.add_argument('--init_channels', type=int, default=16, help='num of init channels')
@@ -109,6 +109,7 @@ def main():
         optimizer, float(args.epochs), eta_min=args.learning_rate_min)
 
     architect = Architect(model, args)
+    extractor = ArchExtractor(model, args)
 
     for epoch in range(args.epochs):
         scheduler.step()
@@ -123,7 +124,7 @@ def main():
         print(F.softmax(model.betas_normal[2:5], dim=-1))
         # model.drop_path_prob = args.drop_path_prob * epoch / args.epochs
         # training
-        train_acc, train_obj = train(train_queue, valid_queue, model, architect, criterion, optimizer, lr, epoch)
+        train_acc, train_obj = train(train_queue, valid_queue, model, architect, criterion, optimizer, lr, epoch, extractor)
         logging.info('train_acc %f', train_acc)
 
         # validation
@@ -134,7 +135,7 @@ def main():
         utils.save(model, os.path.join(args.save, 'weights.pt'))
 
 
-def train(train_queue, valid_queue, model, architect, criterion, optimizer, lr, epoch):
+def train(train_queue, valid_queue, model, architect, criterion, optimizer, lr, epoch, extractor):
     objs = utils.AvgrageMeter()
     top1 = utils.AvgrageMeter()
     top5 = utils.AvgrageMeter()
@@ -155,8 +156,10 @@ def train(train_queue, valid_queue, model, architect, criterion, optimizer, lr, 
         input_search = input_search.cuda()
         target_search = target_search.cuda(non_blocking=True)
 
-        if epoch >= 15:
+        # if epoch >= 15:
+        if epoch >= 0:
             architect.step(input, target, input_search, target_search, lr, optimizer, unrolled=args.unrolled)
+            extractor.step(step % args.report_freq == 0)
 
         optimizer.zero_grad()
         logits = model(input)

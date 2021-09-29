@@ -1,3 +1,4 @@
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -183,6 +184,80 @@ class Network(nn.Module):
 
     def arch_parameters(self):
         return self._arch_parameters
+
+    def norm_gene(self):
+        n = 3
+        start = 2
+        weightsr2 = F.softmax(self.betas_reduce[0:2], dim=-1)
+        weightsn2 = F.softmax(self.betas_normal[0:2], dim=-1)
+        for i in range(self._steps - 1):
+            end = start + n
+            tw2 = F.softmax(self.betas_reduce[start:end], dim=-1)
+            tn2 = F.softmax(self.betas_normal[start:end], dim=-1)
+            start = end
+            n += 1
+            weightsr2 = torch.cat([weightsr2, tw2], dim=0)
+            weightsn2 = torch.cat([weightsn2, tn2], dim=0)
+        weights1 = F.softmax(self.alphas_normal, dim=-1).data.cpu().numpy()
+        weights2 = weightsn2.data.cpu().numpy()
+        bin_mat_norm = weights1.copy()
+        n = 2
+        start = 0
+        for i in range(self._steps):
+            end = start + n
+            W = weights1[start:end].copy()
+            W2 = weights2[start:end].copy()
+            for j in range(n):
+                W[j, :] = W[j, :] * W2[j]
+                bin_mat_norm[start+j, :] = W[j, :]
+            start = end
+            n += 1
+        return torch.from_numpy(bin_mat_norm).cuda()
+
+    def parse_gene(self, weights, weights2):
+        bin_mat = weights.copy()
+        bin_mat.fill(0)
+        gene = []
+        n = 2
+        start = 0
+        for i in range(self._steps):
+            end = start + n
+            W = weights[start:end].copy()
+            W2 = weights2[start:end].copy()
+            for j in range(n):
+                W[j, :] = W[j, :] * W2[j]
+            edges = sorted(range(i + 2),
+                           key=lambda x: -max(W[x][k] for k in range(len(W[x])) if k != PRIMITIVES.index('none')))
+            edges = edges[:2]
+            for j in edges:
+                k_best = None
+                for k in range(len(W[j])):
+                    if k != PRIMITIVES.index('none'):
+                        if k_best is None or W[j][k] > W[j][k_best]:
+                            k_best = k
+                bin_mat[start + j, k_best] = 1
+                gene.append((PRIMITIVES[k_best], j))
+            start = end
+            n += 1
+        return bin_mat
+
+    def geno_matrix(self):
+        n = 3
+        start = 2
+        weightsr2 = F.softmax(self.betas_reduce[0:2], dim=-1)
+        weightsn2 = F.softmax(self.betas_normal[0:2], dim=-1)
+        for i in range(self._steps - 1):
+            end = start + n
+            tw2 = F.softmax(self.betas_reduce[start:end], dim=-1)
+            tn2 = F.softmax(self.betas_normal[start:end], dim=-1)
+            start = end
+            n += 1
+            weightsr2 = torch.cat([weightsr2, tw2], dim=0)
+            weightsn2 = torch.cat([weightsn2, tn2], dim=0)
+        gene_normal = self.parse_gene(F.softmax(self.alphas_normal, dim=-1).data.cpu().numpy(), weightsn2.data.cpu().numpy())
+        # gene_reduce = self.parse_gene(F.softmax(self.alphas_reduce, dim=-1).data.cpu().numpy(), weightsr2.data.cpu().numpy())
+        mat = torch.from_numpy(gene_normal.flatten()).long()
+        return mat.unsqueeze(0).cuda()
 
     def genotype(self):
 
